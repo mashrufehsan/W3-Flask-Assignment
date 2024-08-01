@@ -13,11 +13,17 @@ app.config['SECRET_KEY'] = 'my_secret_key'
 db = SQLAlchemy(app)
 
 api = Api(app, version='1.0', title='User API',
-            description='A simple User API',
-            doc='/swagger-ui')
+          description='A simple User API',
+          doc='/swagger-ui')
 
-# Add security definitions
-api.security = [{'BearerAuth': []}]
+api.authorizations = {
+    'BearerAuth': {
+        'type': 'apiKey',
+        'name': 'Authorization',
+        'in': 'header',
+        'description': 'Enter your bearer token in the format **Bearer &lt;token>**'
+    }
+}
 
 class RoleEnum(Enum):
     USER = 'user'
@@ -91,6 +97,26 @@ class Login(Resource):
             return {'message': 'Login successful!', 'token': token}, 200
         else:
             return {'message': 'Invalid username or password.'}, 401
+
+@api.route('/verify-token')
+class VerifyToken(Resource):
+    @api.doc('verify_token', security='BearerAuth')
+    @api.response(200, 'Token is valid.')
+    @api.response(401, 'Token is invalid or expired.')
+    def get(self):
+        token = request.headers.get('Authorization')
+
+        if not token:
+            return {'message': 'Token is missing!'}, 401
+
+        try:
+            token = token.split(" ")[1]  # Assumes 'Bearer <token>'
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            return {'message': 'Token is valid.', 'user_id': data['user_id']}, 200
+        except jwt.ExpiredSignatureError:
+            return {'message': 'Token has expired!'}, 401
+        except jwt.InvalidTokenError:
+            return {'message': 'Token is invalid!'}, 401
 
 if __name__ == '__main__':
     with app.app_context():
