@@ -75,6 +75,43 @@ login_response_model = api.model('LoginResponse', {
     'token': fields.String(description='JWT token')
 })
 
+register_model = api.model('Register', {
+    'username': fields.String(required=True, description='The username'),
+    'first_name': fields.String(required=True, description='The first name'),
+    'last_name': fields.String(required=True, description='The last name'),
+    'email': fields.String(required=True, description='The email'),
+    'password': fields.String(required=True, description='The password')
+})
+
+register_response_model = api.model('RegisterResponse', {
+    'message': fields.String(description='Response message')
+})
+
+@api.route('/register')
+class Register(Resource):
+    @api.doc('register_user')
+    @api.expect(register_model)
+    @api.response(201, 'User registered successfully.', model=register_response_model)
+    @api.response(400, 'Bad Request')
+    def post(self):
+        data = request.json
+        username = data.get('username')
+        first_name = data.get('first_name')
+        last_name = data.get('last_name')
+        email = data.get('email')
+        password = data.get('password')
+
+        if User.query.filter_by(username=username).first():
+            return {'message': 'Username already exists.'}, 400
+        if User.query.filter_by(email=email).first():
+            return {'message': 'Email already exists.'}, 400
+
+        new_user = User(username=username, first_name=first_name, last_name=last_name, email=email, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+
+        return {'message': 'User registered successfully.'}, 201
+
 @api.route('/login')
 class Login(Resource):
     @api.doc('login_user')
