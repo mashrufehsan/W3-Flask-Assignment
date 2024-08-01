@@ -13,8 +13,8 @@ app.config['SECRET_KEY'] = 'my_secret_key'
 db = SQLAlchemy(app)
 
 api = Api(app, version='1.0', title='User API',
-          description='A simple User API',
-          doc='/swagger-ui')
+            description='A simple User API',
+            doc='/swagger-ui')
 
 api.authorizations = {
     'BearerAuth': {
@@ -87,6 +87,15 @@ register_response_model = api.model('RegisterResponse', {
     'message': fields.String(description='Response message')
 })
 
+reset_password_model = api.model('ResetPassword', {
+    'current_password': fields.String(required=True, description='The current password'),
+    'new_password': fields.String(required=True, description='The new password')
+})
+
+reset_password_response_model = api.model('ResetPasswordResponse', {
+    'message': fields.String(description='Response message')
+})
+
 @api.route('/register')
 class Register(Resource):
     @api.doc('register_user')
@@ -154,6 +163,45 @@ class VerifyToken(Resource):
             return {'message': 'Token has expired!'}, 401
         except jwt.InvalidTokenError:
             return {'message': 'Token is invalid!'}, 401
+
+@api.route('/reset-password')
+class ResetPassword(Resource):
+    @api.doc('reset_password', security='BearerAuth')
+    @api.expect(reset_password_model)
+    @api.response(200, 'Password reset successful.', model=reset_password_response_model)
+    @api.response(400, 'Bad Request')
+    @api.response(401, 'Unauthorized')
+    def post(self):
+        token = request.headers.get('Authorization')
+
+        if not token:
+            return {'message': 'Token is missing!'}, 401
+
+        try:
+            token = token.split(" ")[1]  # Assumes 'Bearer <token>'
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            user_id = data['user_id']
+        except jwt.ExpiredSignatureError:
+            return {'message': 'Token has expired!'}, 401
+        except jwt.InvalidTokenError:
+            return {'message': 'Token is invalid!'}, 401
+
+        data = request.json
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+
+        user = User.query.filter_by(id=user_id).first()
+
+        if not user:
+            return {'message': 'User does not exist.'}, 400
+
+        if not check_password_hash(user.password, current_password):
+            return {'message': 'Current password is incorrect.'}, 400
+
+        user.password = generate_password_hash(new_password)
+        db.session.commit()
+
+        return {'message': 'Password reset successful.'}, 200
 
 if __name__ == '__main__':
     with app.app_context():
