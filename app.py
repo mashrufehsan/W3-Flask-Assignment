@@ -105,8 +105,10 @@ edit_user_model = api.model('EditUser', {
     'first_name': fields.String(description='The first name'),
     'last_name': fields.String(description='The last name'),
     'email': fields.String(description='The email'),
-    'role': fields.String(description='The role')
+    'role': fields.String(description='The role'),
+    'active': fields.Boolean(description='The active status')
 })
+
 
 edit_user_response_model = api.model('EditUserResponse', {
     'message': fields.String(description='Response message')
@@ -161,28 +163,7 @@ class Login(Resource):
             return {'message': 'Login successful!', 'token': token}, 200
         else:
             return {'message': 'Invalid username or password.'}, 401
-
-
-# @api.route('/verify-token')
-# class VerifyToken(Resource):
-#     @api.doc('verify_token', security='BearerAuth')
-#     @api.response(200, 'Token is valid.')
-#     @api.response(401, 'Token is invalid or expired.')
-#     def get(self):
-#         token = request.headers.get('Authorization')
-
-#         if not token:
-#             return {'message': 'Token is missing!'}, 401
-
-#         try:
-#             token = token.split(" ")[1] 
-#             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-#             return {'message': 'Token is valid.', 'user_id': data['user_id']}, 200
-#         except jwt.ExpiredSignatureError:
-#             return {'message': 'Token has expired!'}, 401
-#         except jwt.InvalidTokenError:
-#             return {'message': 'Token is invalid!'}, 401
-
+        
 
 @api.route('/reset-password')
 class ResetPassword(Resource):
@@ -257,7 +238,7 @@ class EditUser(Resource):
             if not user_to_edit:
                 return {'message': 'User not found.'}, 400
             if user_to_edit.role == RoleEnum.ADMIN and user_to_edit != current_user:
-                return {'message': 'Cannot change role of another admin.'}, 403
+                return {'message': 'Cannot change status of another admin.'}, 403
         else:
             user_to_edit = current_user
 
@@ -282,6 +263,14 @@ class EditUser(Resource):
                     user_to_edit.role = RoleEnum.USER
             else:
                 return {'message': 'You cannot change your own role.'}, 403
+
+        if 'active' in data:
+            if current_user.role == RoleEnum.ADMIN:
+                if user_to_edit != current_user and user_to_edit.role == RoleEnum.ADMIN:
+                    return {'message': 'Cannot change active status of another admin.'}, 403
+                user_to_edit.active = data['active']
+            else:
+                return {'message': 'You cannot change active status.'}, 403
 
         db.session.commit()
 
