@@ -25,9 +25,11 @@ api.authorizations = {
     }
 }
 
+
 class RoleEnum(Enum):
     USER = 'user'
     ADMIN = 'admin'
+
 
 class User(db.Model):
     __tablename__ = 'users'
@@ -50,6 +52,7 @@ class User(db.Model):
         self.password = generate_password_hash(password)
         self.role = role
 
+
 def create_default_admin():
     with app.app_context():
         if not User.query.first():
@@ -64,6 +67,7 @@ def create_default_admin():
             db.session.add(admin_user)
             db.session.commit()
             print("Default admin user created.")
+
 
 login_model = api.model('Login', {
     'username': fields.String(required=True, description='The username'),
@@ -96,6 +100,19 @@ reset_password_response_model = api.model('ResetPasswordResponse', {
     'message': fields.String(description='Response message')
 })
 
+edit_user_model = api.model('EditUser', {
+    'username': fields.String(description='The username'),
+    'first_name': fields.String(description='The first name'),
+    'last_name': fields.String(description='The last name'),
+    'email': fields.String(description='The email'),
+    'role': fields.String(description='The role')
+})
+
+edit_user_response_model = api.model('EditUserResponse', {
+    'message': fields.String(description='Response message')
+})
+
+
 @api.route('/register')
 class Register(Resource):
     @api.doc('register_user')
@@ -121,6 +138,7 @@ class Register(Resource):
 
         return {'message': 'User registered successfully.'}, 201
 
+
 @api.route('/login')
 class Login(Resource):
     @api.doc('login_user')
@@ -144,25 +162,27 @@ class Login(Resource):
         else:
             return {'message': 'Invalid username or password.'}, 401
 
-@api.route('/verify-token')
-class VerifyToken(Resource):
-    @api.doc('verify_token', security='BearerAuth')
-    @api.response(200, 'Token is valid.')
-    @api.response(401, 'Token is invalid or expired.')
-    def get(self):
-        token = request.headers.get('Authorization')
 
-        if not token:
-            return {'message': 'Token is missing!'}, 401
+# @api.route('/verify-token')
+# class VerifyToken(Resource):
+#     @api.doc('verify_token', security='BearerAuth')
+#     @api.response(200, 'Token is valid.')
+#     @api.response(401, 'Token is invalid or expired.')
+#     def get(self):
+#         token = request.headers.get('Authorization')
 
-        try:
-            token = token.split(" ")[1]  # Assumes 'Bearer <token>'
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            return {'message': 'Token is valid.', 'user_id': data['user_id']}, 200
-        except jwt.ExpiredSignatureError:
-            return {'message': 'Token has expired!'}, 401
-        except jwt.InvalidTokenError:
-            return {'message': 'Token is invalid!'}, 401
+#         if not token:
+#             return {'message': 'Token is missing!'}, 401
+
+#         try:
+#             token = token.split(" ")[1] 
+#             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+#             return {'message': 'Token is valid.', 'user_id': data['user_id']}, 200
+#         except jwt.ExpiredSignatureError:
+#             return {'message': 'Token has expired!'}, 401
+#         except jwt.InvalidTokenError:
+#             return {'message': 'Token is invalid!'}, 401
+
 
 @api.route('/reset-password')
 class ResetPassword(Resource):
@@ -178,7 +198,7 @@ class ResetPassword(Resource):
             return {'message': 'Token is missing!'}, 401
 
         try:
-            token = token.split(" ")[1]  # Assumes 'Bearer <token>'
+            token = token.split(" ")[1]
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
             user_id = data['user_id']
         except jwt.ExpiredSignatureError:
@@ -202,6 +222,71 @@ class ResetPassword(Resource):
         db.session.commit()
 
         return {'message': 'Password reset successful.'}, 200
+
+
+@api.route('/edit-user')
+@api.route('/edit-user/<string:username>')
+class EditUser(Resource):
+    @api.doc('edit_user', security='BearerAuth')
+    @api.expect(edit_user_model)
+    @api.response(200, 'User details updated successfully.')
+    @api.response(400, 'Bad Request')
+    @api.response(401, 'Unauthorized')
+    @api.response(403, 'Permission denied.')
+    def put(self, username=None):
+        token = request.headers.get('Authorization')
+
+        if not token:
+            return {'message': 'Token is missing!'}, 401
+
+        try:
+            token = token.split(" ")[1]
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            current_user_id = data['user_id']
+            current_user = User.query.get(current_user_id)
+        except jwt.ExpiredSignatureError:
+            return {'message': 'Token has expired!'}, 401
+        except jwt.InvalidTokenError:
+            return {'message': 'Token is invalid!'}, 401
+
+        if username:
+            if current_user.role != RoleEnum.ADMIN:
+                return {'message': 'Permission denied.'}, 403
+
+            user_to_edit = User.query.filter_by(username=username).first()
+            if not user_to_edit:
+                return {'message': 'User not found.'}, 400
+            if user_to_edit.role == RoleEnum.ADMIN and user_to_edit != current_user:
+                return {'message': 'Cannot change role of another admin.'}, 403
+        else:
+            user_to_edit = current_user
+
+        data = request.json
+        if 'username' in data and data['username'] != user_to_edit.username:
+            if User.query.filter_by(username=data['username']).first():
+                return {'message': 'Username already exists.'}, 400
+            user_to_edit.username = data['username']
+        if 'first_name' in data:
+            user_to_edit.first_name = data['first_name']
+        if 'last_name' in data:
+            user_to_edit.last_name = data['last_name']
+        if 'email' in data:
+            user_to_edit.email = data['email']
+        if 'role' in data:
+            if current_user.role == RoleEnum.ADMIN:
+                if user_to_edit != current_user and user_to_edit.role == RoleEnum.ADMIN:
+                    return {'message': 'Cannot change role of another admin.'}, 403
+                if data['role'] == 'admin' and user_to_edit.role == RoleEnum.USER:
+                    user_to_edit.role = RoleEnum.ADMIN
+                elif data['role'] == 'user' and user_to_edit.role == RoleEnum.ADMIN:
+                    user_to_edit.role = RoleEnum.USER
+            else:
+                return {'message': 'You cannot change your own role.'}, 403
+
+        db.session.commit()
+
+        return {'message': 'User details updated successfully.'}, 200
+
 
 if __name__ == '__main__':
     with app.app_context():
