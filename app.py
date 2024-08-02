@@ -91,12 +91,12 @@ register_response_model = api.model('RegisterResponse', {
     'message': fields.String(description='Response message')
 })
 
-reset_password_model = api.model('ResetPassword', {
+change_password_model = api.model('ChangePassword', {
     'current_password': fields.String(required=True, description='The current password'),
     'new_password': fields.String(required=True, description='The new password')
 })
 
-reset_password_response_model = api.model('ResetPasswordResponse', {
+change_password_response_model = api.model('ChangePasswordResponse', {
     'message': fields.String(description='Response message')
 })
 
@@ -165,11 +165,11 @@ class Login(Resource):
             return {'message': 'Invalid username or password.'}, 401
         
 
-@api.route('/reset-password')
-class ResetPassword(Resource):
-    @api.doc('reset_password', security='BearerAuth')
-    @api.expect(reset_password_model)
-    @api.response(200, 'Password reset successful.', model=reset_password_response_model)
+@api.route('/change-password')
+class ChangePassword(Resource):
+    @api.doc('change_password', security='BearerAuth')
+    @api.expect(change_password_model)
+    @api.response(200, 'Password change successful.', model=change_password_response_model)
     @api.response(400, 'Bad Request')
     @api.response(401, 'Unauthorized')
     def post(self):
@@ -202,7 +202,7 @@ class ResetPassword(Resource):
         user.password = generate_password_hash(new_password)
         db.session.commit()
 
-        return {'message': 'Password reset successful.'}, 200
+        return {'message': 'Password change successful.'}, 200
 
 
 @api.route('/edit-user')
