@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_restx import Api, Resource, fields
 import jwt
+import os
+import binascii
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:p%40stgress@localhost:5433/flask_assignment'
@@ -13,8 +15,8 @@ app.config['SECRET_KEY'] = 'my_secret_key'
 db = SQLAlchemy(app)
 
 api = Api(app, version='1.0', title='User API',
-            description='A simple User API',
-            doc='/swagger-ui')
+          description='A simple User API',
+          doc='/swagger-ui')
 
 api.authorizations = {
     'BearerAuth': {
@@ -51,6 +53,19 @@ class User(db.Model):
         self.email = email
         self.password = generate_password_hash(password)
         self.role = role
+
+
+class ResetToken(db.Model):
+    __tablename__ = 'reset_tokens'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), nullable=False)
+    token = db.Column(db.String(100), unique=True, nullable=False)
+    is_used = db.Column(db.Boolean, default=False)
+    create_date = db.Column(db.DateTime, default=datetime.now())
+
+    def __init__(self, username, token):
+        self.username = username
+        self.token = token
 
 
 def create_default_admin():
@@ -109,7 +124,6 @@ edit_user_model = api.model('EditUser', {
     'active': fields.Boolean(description='The active status')
 })
 
-
 edit_user_response_model = api.model('EditUserResponse', {
     'message': fields.String(description='Response message')
 })
@@ -163,7 +177,7 @@ class Login(Resource):
             return {'message': 'Login successful!', 'token': token}, 200
         else:
             return {'message': 'Invalid username or password.'}, 401
-        
+
 
 @api.route('/change-password')
 class ChangePassword(Resource):
@@ -237,15 +251,13 @@ class EditUser(Resource):
             user_to_edit = User.query.filter_by(username=username).first()
             if not user_to_edit:
                 return {'message': 'User not found.'}, 400
-            if user_to_edit.role == RoleEnum.ADMIN and user_to_edit != current_user:
-                return {'message': 'Cannot change status of another admin.'}, 403
+            if current_user.id == user_to_edit.id:
+                return {'message': 'You cannot edit your own role or active status.'}, 403
         else:
             user_to_edit = current_user
 
         data = request.json
-        if 'username' in data and data['username'] != user_to_edit.username:
-            if User.query.filter_by(username=data['username']).first():
-                return {'message': 'Username already exists.'}, 400
+        if 'username' in data:
             user_to_edit.username = data['username']
         if 'first_name' in data:
             user_to_edit.first_name = data['first_name']
@@ -253,28 +265,67 @@ class EditUser(Resource):
             user_to_edit.last_name = data['last_name']
         if 'email' in data:
             user_to_edit.email = data['email']
-        if 'role' in data:
-            if current_user.role == RoleEnum.ADMIN:
-                if user_to_edit != current_user and user_to_edit.role == RoleEnum.ADMIN:
-                    return {'message': 'Cannot change role of another admin.'}, 403
-                if data['role'] == 'admin' and user_to_edit.role == RoleEnum.USER:
-                    user_to_edit.role = RoleEnum.ADMIN
-                elif data['role'] == 'user' and user_to_edit.role == RoleEnum.ADMIN:
-                    user_to_edit.role = RoleEnum.USER
-            else:
-                return {'message': 'You cannot change your own role.'}, 403
-
-        if 'active' in data:
-            if current_user.role == RoleEnum.ADMIN:
-                if user_to_edit != current_user and user_to_edit.role == RoleEnum.ADMIN:
-                    return {'message': 'Cannot change active status of another admin.'}, 403
-                user_to_edit.active = data['active']
-            else:
-                return {'message': 'You cannot change active status.'}, 403
+        if 'role' in data and current_user.role == RoleEnum.ADMIN:
+            user_to_edit.role = data['role']
+        if 'active' in data and current_user.role == RoleEnum.ADMIN:
+            user_to_edit.active = data['active']
 
         db.session.commit()
 
         return {'message': 'User details updated successfully.'}, 200
+
+
+@api.route('/forgot-password')
+class ForgotPassword(Resource):
+    @api.doc('forgot_password')
+    @api.expect(api.model('ForgotPassword', {'username': fields.String(required=True, description='The username')}))
+    @api.response(200, 'Reset token generated.')
+    @api.response(400, 'Bad Request')
+    def post(self):
+        data = request.json
+        username = data.get('username')
+
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            return {'message': 'Username not found.'}, 400
+
+        token = binascii.hexlify(os.urandom(24)).decode()
+        reset_token = ResetToken(username=username, token=token)
+        db.session.add(reset_token)
+        db.session.commit()
+
+        reset_url = f'http://yourdomain.com/reset-password/{token}'
+        # Here you would send an email to the user with the reset URL.
+
+        return {'message': 'Reset token generated.', 'reset_url': reset_url}, 200
+
+
+@api.route('/reset-password/<string:token>')
+class ResetPassword(Resource):
+    @api.doc('reset_password')
+    @api.expect(api.model('ResetPassword', {'new_password': fields.String(required=True, description='The new password')}))
+    @api.response(200, 'Password reset successful.')
+    @api.response(400, 'Bad Request')
+    @api.response(401, 'Invalid or expired token.')
+    def post(self, token):
+        reset_token = ResetToken.query.filter_by(token=token).first()
+        if not reset_token or reset_token.is_used:
+            return {'message': 'Invalid or expired token.'}, 401
+
+        data = request.json
+        new_password = data.get('new_password')
+
+        user = User.query.filter_by(username=reset_token.username).first()
+        if not user:
+            return {'message': 'User not found.'}, 400
+
+        user.password = generate_password_hash(new_password)
+        db.session.commit()
+
+        reset_token.is_used = True
+        db.session.commit()
+
+        return {'message': 'Password reset successful.'}, 200
 
 
 if __name__ == '__main__':
