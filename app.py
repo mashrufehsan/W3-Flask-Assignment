@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from enum import Enum
 from datetime import datetime, timedelta
@@ -15,8 +15,8 @@ app.config['SECRET_KEY'] = 'my_secret_key'
 db = SQLAlchemy(app)
 
 api = Api(app, version='1.0', title='User API',
-          description='A simple User API',
-          doc='/swagger-ui')
+            description='A simple User API',
+            doc='/swagger-ui')
 
 api.authorizations = {
     'BearerAuth': {
