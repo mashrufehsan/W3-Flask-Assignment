@@ -1,18 +1,16 @@
 from flask import Flask, request
-from flask_sqlalchemy import SQLAlchemy
-from enum import Enum
-from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash, check_password_hash
 from flask_restx import Api, Resource, fields
+from werkzeug.security import check_password_hash, generate_password_hash
+from datetime import datetime, timedelta
 import jwt
 import os
 import binascii
+from config import Config
+from models import db, User, ResetToken, RoleEnum
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:admin@localhost:5432/flask_assignment'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'my_secret_key'
-db = SQLAlchemy(app)
+app.config.from_object(Config)
+db.init_app(app)
 
 api = Api(app, version='1.0', title='User API',
             description='A simple User API',
@@ -26,47 +24,6 @@ api.authorizations = {
         'description': 'Enter your bearer token in the format **Bearer &lt;token>**'
     }
 }
-
-
-class RoleEnum(Enum):
-    USER = 'user'
-    ADMIN = 'admin'
-
-
-class User(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), unique=True, nullable=False)
-    first_name = db.Column(db.String(50), nullable=False)
-    last_name = db.Column(db.String(50), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.Enum(RoleEnum), default=RoleEnum.USER, nullable=False)
-    create_date = db.Column(db.DateTime, default=datetime.now())
-    update_date = db.Column(db.DateTime, onupdate=datetime.now())
-    active = db.Column(db.Boolean, default=True)
-
-    def __init__(self, username, first_name, last_name, email, password, role=RoleEnum.USER):
-        self.username = username
-        self.first_name = first_name
-        self.last_name = last_name
-        self.email = email
-        self.password = generate_password_hash(password)
-        self.role = role
-
-
-class ResetToken(db.Model):
-    __tablename__ = 'reset_tokens'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), nullable=False)
-    token = db.Column(db.String(100), unique=True, nullable=False)
-    is_used = db.Column(db.Boolean, default=False)
-    create_date = db.Column(db.DateTime, default=datetime.now())
-
-    def __init__(self, username, token):
-        self.username = username
-        self.token = token
-
 
 def create_default_admin():
     with app.app_context():
@@ -82,7 +39,6 @@ def create_default_admin():
             db.session.add(admin_user)
             db.session.commit()
             print("Default admin user created.")
-
 
 login_model = api.model('Login', {
     'username': fields.String(required=True, description='The username'),
@@ -128,7 +84,6 @@ edit_user_response_model = api.model('EditUserResponse', {
     'message': fields.String(description='Response message')
 })
 
-
 @api.route('/register')
 class Register(Resource):
     @api.doc('register_user')
@@ -154,7 +109,6 @@ class Register(Resource):
 
         return {'message': 'User registered successfully.'}, 201
 
-
 @api.route('/login')
 class Login(Resource):
     @api.doc('login_user')
@@ -177,7 +131,6 @@ class Login(Resource):
             return {'message': 'Login successful!', 'token': token}, 200
         else:
             return {'message': 'Invalid username or password.'}, 401
-
 
 @api.route('/change-password')
 class ChangePassword(Resource):
@@ -217,7 +170,6 @@ class ChangePassword(Resource):
         db.session.commit()
 
         return {'message': 'Password change successful.'}, 200
-
 
 @api.route('/edit-user')
 @api.route('/edit-user/<string:username>')
@@ -274,7 +226,6 @@ class EditUser(Resource):
 
         return {'message': 'User details updated successfully.'}, 200
 
-
 @api.route('/forgot-password')
 class ForgotPassword(Resource):
     @api.doc('forgot_password')
@@ -294,26 +245,26 @@ class ForgotPassword(Resource):
         db.session.add(reset_token)
         db.session.commit()
 
-        reset_url = f'http://yourdomain.com/reset-password/{token}'
-        # Here you would send an email to the user with the reset URL.
+        reset_url = f'http://localhost:5000/reset-password/{token}'
 
         return {'message': 'Reset token generated.', 'reset_url': reset_url}, 200
-
 
 @api.route('/reset-password/<string:token>')
 class ResetPassword(Resource):
     @api.doc('reset_password')
-    @api.expect(api.model('ResetPassword', {'new_password': fields.String(required=True, description='The new password')}))
+    @api.expect(api.model('ResetPassword', {
+        'new_password': fields.String(required=True, description='The new password')
+    }))
     @api.response(200, 'Password reset successful.')
-    @api.response(400, 'Bad Request')
-    @api.response(401, 'Invalid or expired token.')
+    @api.response(400, 'Invalid token or token has been used.')
     def post(self, token):
-        reset_token = ResetToken.query.filter_by(token=token).first()
-        if not reset_token or reset_token.is_used:
-            return {'message': 'Invalid or expired token.'}, 401
-
         data = request.json
         new_password = data.get('new_password')
+
+        reset_token = ResetToken.query.filter_by(token=token).first()
+
+        if not reset_token or reset_token.is_used:
+            return {'message': 'Invalid token or token has been used.'}, 400
 
         user = User.query.filter_by(username=reset_token.username).first()
         if not user:
@@ -326,7 +277,6 @@ class ResetPassword(Resource):
         db.session.commit()
 
         return {'message': 'Password reset successful.'}, 200
-
 
 if __name__ == '__main__':
     with app.app_context():
