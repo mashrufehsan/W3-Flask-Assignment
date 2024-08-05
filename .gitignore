@@ -1,3 +1,4 @@
 venv/
 TODO.md
 .env
+__pycache__/
