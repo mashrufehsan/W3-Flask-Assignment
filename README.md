@@ -1,14 +1,18 @@
 # Flask REST API with PostgreSQL and SQLAlchemy
  All the APIs are created following OpenAPI Standards.
-## Requirements
+
+## Features
+- User registration
+- User login with JWT authentication
+- Change password
+- Edit user details
+- Password reset request and reset
+
+## Prerequisites
 
 - Python
 - PostgreSQL
-- Flask
-- Flask-RESTX
-- Flask-SQLAlchemy
-- PyJWT
-- Werkzeug
+- pip (Python package installer)
 
 ## Setup Instructions
 
@@ -29,24 +33,33 @@
     pip install -r requirements.txt
     ```
 
-4. **Setup PostgreSQL Database:**
-    - Create a PostgreSQL database and user with the necessary privileges.
-    - Update the database URI in `app.config['SQLALCHEMY_DATABASE_URI']` with your database credentials.
+4. **Configure environment variables:**
 
-5. **Run the application:**
+    Copy the .env.sample file to .env and fill in the required configuration:
+    ```bash
+    cp .env.sample .env
+    ```
+    Edit .env to include your database URI and secret key.
+
+5. **Set up the database:**
+Make sure PostgreSQL is running and the database specified in `SQLALCHEMY_DATABASE_URI` in the `.env` file exists.
+
+6. **Run the application:**
     ```bash
     python app.py
     ```
 
-6. **Access Swagger-UI:**
+7. **Access Swagger-UI:**
     Open your web browser and go to `http://localhost:5000/swagger-ui`.
 
-## Important!
-Upon running the project first time, A table named ```users``` will be created along with a user by default with *****admin***** privilege.
+## ! Important
+Upon first run a table named ```users``` will be created along with a user by default with *****admin***** privilege.
 
         "username": "admin",
         "password": "admin"
 This user is needed to perform further operations like promoting other users to admin.
+
+Also, another table named `reset_tokens` will be created to store password reset tokens.
 
 ## API Endpoints
 
@@ -80,23 +93,15 @@ This user is needed to perform further operations like promoting other users to 
     }
     ```
 - **Responses:**
-    - `200`: Login successful, returns JWT token.
+    - `200`: Login successful. Returns a JWT token.
     - `401`: Invalid username or password.
 
-### Verify JWT Token
+### Change Password
 
-- **Endpoint:** `/verify-token`
-- **Method:** `GET`
-- **Security:** Bearer Token
-- **Responses:**
-    - `200`: Token is valid.
-    - `401`: Token is missing, invalid, or expired.
-
-### Reset Password
-
-- **Endpoint:** `/reset-password`
+- **Endpoint:** `/change-password`
 - **Method:** `POST`
-- **Security:** Bearer Token
+- **Headers:**
+    - `Authorization: Bearer <token>`
 - **Request Body:**
     ```json
     {
@@ -105,9 +110,62 @@ This user is needed to perform further operations like promoting other users to 
     }
     ```
 - **Responses:**
-    - `200`: Password reset successful.
+    - `200`: Password change successful.
     - `400`: Current password is incorrect or user does not exist.
-    - `401`: Token is missing, invalid, or expired.
+    - `401`: Token is missing, expired, or invalid.
+
+### Edit User
+
+- **Endpoint:** `/edit-user` or `/edit-user/<username>`
+- **Method:** `PUT`
+- **Headers:**
+    - `Authorization: Bearer <token>`
+- **Request Body:**
+    ```json
+    {
+        "username": "newusername",
+        "first_name": "NewFirstName",
+        "last_name": "NewLastName",
+        "email": "newemail@example.com",
+        "role": "admin",  // Only for admin
+        "active": true  // Only for admin
+    }
+    ```
+- **Responses:**
+    - `200`: User details updated successfully.
+    - `400`: User not found.
+    - `401`: Token is missing, expired, or invalid.
+    - `403`: Permission denied.
+
+### Forgot Password
+
+- **Endpoint:** `/forgot-password`
+- **Method:** `POST`
+- **Request Body:**
+    ```json
+    {
+        "username": "johndoe"
+    }
+    ```
+- **Responses:**
+    - `200`: Reset token generated. Provides a reset URL.
+    - `400`: Username not found.
+
+### Reset Password
+
+- **Endpoint:** `/reset-password/<token>`
+- **Method:** `POST`
+- **Request Body:**
+    ```json
+    {
+        "new_password": "newpassword123"
+    }
+    ```
+- **Responses:**
+    - `200`: Password reset successful.
+    - `400`: User not found.
+    - `401`: Invalid or expired token.
+
 
 ## Models
 
@@ -124,6 +182,16 @@ This user is needed to perform further operations like promoting other users to 
   - `create_date`: DateTime, default is current timestamp.
   - `update_date`: DateTime, auto-updates on REST API call.
   - `active`: Boolean, default is `True`.
+
+### ResetToken
+
+- **Columns:**
+  - `id`: Integer, primary key.
+  - `username`: String(50), not nullable.
+  - `token`: String(100), unique, not nullable.
+  - `is_used`: Boolean, default is `False`.
+  - `create_date`: DateTime, default is current timestamp.
+
 
 ## Notes
 
