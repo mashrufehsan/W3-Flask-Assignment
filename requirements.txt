@@ -3,4 +3,3 @@ Flask-SQLAlchemy
 psycopg2-binary
 flask-restx
 pyjwt
-python-dotenv
